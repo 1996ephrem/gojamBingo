@@ -67,13 +67,12 @@ const failedPinAttempts = new Map();
 const activeSockets = new Map();
 
 function getAppBaseUrl() {
-  if (process.env.WEBAPP_URL) {
-    return process.env.WEBAPP_URL.replace(/\/$/, '');
+  let url = process.env.WEBAPP_URL || process.env.RENDER_EXTERNAL_URL || 'http://localhost:3000';
+  url = url.replace(/\/$/, '');
+  if (url.includes('onrender.com') && url.startsWith('http://')) {
+    url = url.replace('http://', 'https://');
   }
-  if (process.env.RENDER_EXTERNAL_URL) {
-    return process.env.RENDER_EXTERNAL_URL.replace(/\/$/, '');
-  }
-  return 'http://localhost:3000';
+  return url;
 }
 
 function getBotMainMenu(webAppUrl) {
@@ -136,6 +135,7 @@ if (process.env.BOT_TOKEN) {
 
   }).catch((err) => console.error('Telegram bot init error:', err.message));
 
+  // 🚀 1. /start
   bot.onText(/\/start(.*)/, async (msg, match) => {
     const chatId = msg.chat.id;
     const telegramId = msg.from.id.toString();
@@ -158,31 +158,29 @@ if (process.env.BOT_TOKEN) {
         return bot.sendMessage(chatId, '❌ ይቅርታ! አካውንትዎ ታግዷል፤ ወደ ጨዋታው መግባት አይችሉም።').catch(() => {});
       }
 
-      if (referrerRef && !user.phone_number) {
-        bot.sendMessage(
-          referrerRef,
-          `👋 አንድ ጓደኛዎ (${firstName}) በእርስዎ ሊንክ ገብቷል!`
-        ).catch(() => {});
-      }
+      const webAppUrl = `${getAppBaseUrl()}/?v=${Date.now()}`;
 
       if (!user.phone_number) {
         return bot.sendMessage(
           chatId,
-          `🎯 Welcome to ${SYSTEM_CONFIG.appName} 🌟!\n\nየ 15 ETB የመጫወቻ ቦነስዎን (Play-Only Bonus) ለመቀበል እና ጨዋታውን ለመጀመር እባክዎ ከታች ያለውን ሰማያዊ '📲 ስልክ ቁጥር አረጋግጥ' የሚለውን በተን ይጫኑ።`,
+          `🎯 <b>እንኳን ወደ ${SYSTEM_CONFIG.appName} በደህና መጡ!</b> 🌟\n\n` +
+          `🎁 የ <b>15 ETB</b> የመጫወቻ ቦነስዎን (Play-Only Bonus) ለመቀበል እና ጨዋታውን ለመጀመር ከታች ያለውን ሰማያዊ <b>'📲 ስልክ ቁጥር አረጋግጥ'</b> የሚለውን በተን ይጫኑ።`,
           {
+            parse_mode: 'HTML',
             reply_markup: {
-              keyboard: [[{ text: '📲 ስልክ ቁጥር አረጋግጥ (Share Phone Number)', request_contact: true }]],
-              resize_keyboard: true,
-              one_time_keyboard: true
+              keyboard: [
+                [{ text: '📲 ስልክ ቁጥር አረጋግጥ (Share Phone Number)', request_contact: true }],
+                [{ text: '🎮 ይጫወቱ' }, { text: '💰 ሂሳብ' }]
+              ],
+              resize_keyboard: true
             }
           }
         ).catch(() => {});
       }
 
-      const webAppUrl = `${getAppBaseUrl()}/?v=${Date.now()}`;
       bot.sendMessage(
         chatId,
-        `🎯 <b>እንኳን ደህና መጡ ወደ ${SYSTEM_CONFIG.appName} ${firstName}!</b>\n\nለመጫወት ከታች ያለውን <b>'🎮 ይጫወቱ'</b> በተን ይጫኑ ወይም ሒሳብዎን ለመቆጣጠር አማራጮቹን ይጠቀሙ!`,
+        `🎯 <b>እንኳን ደህና መጡ ወደ ${SYSTEM_CONFIG.appName} ${firstName}!</b>\n\nለመጫወት ከታች ያለውን <b>'🎮 ይጫወቱ'</b> በተን ይጫኑ ወይም ከሜኑ አማራጮቹን ይጠቀሙ!`,
         { parse_mode: 'HTML', ...getBotMainMenu(webAppUrl) }
       ).catch(() => {});
     } catch (e) {
@@ -190,14 +188,11 @@ if (process.env.BOT_TOKEN) {
     }
   });
 
+  // 📲 ስልክ ማረጋገጫ
   bot.on('contact', async (msg) => {
     const chatId = msg.chat.id;
     const telegramId = msg.from.id.toString();
     const contact = msg.contact;
-
-    if (contact.user_id !== msg.from.id) {
-      return bot.sendMessage(chatId, '❌ እባክዎን የእራስዎን ስልክ ቁጥር ብቻ ያጋሩ!').catch(() => {});
-    }
 
     let phone = contact.phone_number;
     if (!phone.startsWith('+')) phone = '+' + phone;
@@ -209,55 +204,56 @@ if (process.env.BOT_TOKEN) {
       const regResult = await DB.registerVerifiedPhone(telegramId, username, firstName, phone);
       const webAppUrl = `${getAppBaseUrl()}/?v=${Date.now()}`;
 
-      if (regResult.isNewBonus) {
-        bot.sendMessage(
-          chatId,
-          `🎉 <b>እንኳን ደስ አለዎት ምዝገባዎ ተጠናቋል!</b>\n\n` +
-          `✅ ስልክ ቁጥርዎ ተረጋግጧል (${phone})\n` +
-          `🎁 የ <b>15 ETB</b> የመጫወቻ ቦነስ (Play-Only) ወደ አካውንትዎ ገቢ ሆኗል!\n\n` +
-          `ለመጫወት ከታች ያለውን '🎮 ይጫወቱ' የሚለውን በተን ይጫኑ!`,
-          { parse_mode: 'HTML', ...getBotMainMenu(webAppUrl) }
-        ).catch(() => {});
+      bot.sendMessage(
+        chatId,
+        `🎉 <b>እንኳን ደስ አለዎት ምዝገባዎ ተጠናቋል!</b>\n\n` +
+        `✅ ስልክ ቁጥርዎ ተረጋግጧል (${phone})\n` +
+        `🎁 የ <b>15 ETB</b> የመጫወቻ ቦነስ (Play-Only) ወደ አካውንትዎ ገቢ ሆኗል!\n\n` +
+        `ለመጫወት ከታች ያለውን <b>'🎮 ይጫወቱ'</b> የሚለውን በተን ይጫኑ!`,
+        { parse_mode: 'HTML', ...getBotMainMenu(webAppUrl) }
+      ).catch(() => {});
 
-        for (const [sockId, pInfo] of activeSockets.entries()) {
-          if (pInfo.telegramId === telegramId || pInfo.dbId === regResult.user.id) {
-            pInfo.balance = regResult.user.balance;
-            io.to(sockId).emit('balance_updated', {
-              balance: regResult.user.balance,
-              cashableBalance: 0.00,
-              playOnlyBalance: regResult.user.balance
-            });
-          }
+      for (const [sockId, pInfo] of activeSockets.entries()) {
+        if (pInfo.telegramId === telegramId || pInfo.dbId === regResult.user.id) {
+          pInfo.balance = regResult.user.balance;
+          io.to(sockId).emit('balance_updated', {
+            balance: regResult.user.balance,
+            cashableBalance: 0.00,
+            playOnlyBalance: regResult.user.balance
+          });
         }
-      } else {
-        bot.sendMessage(
-          chatId,
-          `ℹ️ ይህ ስልክ ቁጥር (${phone}) አስቀድሞ የተመዘገበ ነው!\n\n💰 ቀሪ ሒሳብዎ: ${regResult.user.balance} ETB`,
-          { parse_mode: 'HTML', ...getBotMainMenu(webAppUrl) }
-        ).catch(() => {});
       }
     } catch (err) {
-      if (err.message === 'DUPLICATE_PHONE_OTHER_ACCOUNT') {
-        bot.sendMessage(chatId, `❌ ይቅርታ! ይህ ስልክ ቁጥር ቀድሞ በሌላ የቴሌግራም አካውንት ተመዝግቧል!`).catch(() => {});
-      }
+      console.error('Contact error:', err.message);
     }
   });
 
-  bot.onText(/\/play/, (msg) => {
+  // 🎮 /play ትዕዛዝ
+  bot.onText(/\/?(play|ይጫወቱ)(@\w+)?/i, (msg) => {
     const webAppUrl = `${getAppBaseUrl()}/?v=${Date.now()}`;
-    bot.sendMessage(msg.chat.id, "🎮 ለመጫወት ከታች ያለውን ይጫኑ!", {
+    bot.sendMessage(msg.chat.id, `🎮 <b>ወደ ${SYSTEM_CONFIG.appName} ጨዋታ ሜዳ ለመግባት፦</b>\n\nከታች ያለውን ሰማያዊ በተን ይጫኑ!`, {
+      parse_mode: 'HTML',
       reply_markup: {
         inline_keyboard: [[{ text: '🎮 አሁኑኑ ተጫወት (Play Now)', web_app: { url: webAppUrl } }]]
       }
-    }).catch(() => {});
+    }).catch(err => console.error('Play command error:', err.message));
   });
 
-  bot.onText(/\/balance/, async (msg) => {
+  // 💰 /balance ትዕዛዝ
+  bot.onText(/\/?(balance|ሂሳብ)(@\w+)?/i, async (msg) => {
+    const chatId = msg.chat.id;
+    const telegramId = msg.from.id.toString();
+    const firstName = msg.from.first_name || 'Player';
+    const username = msg.from.username ? `@${msg.from.username}` : firstName;
+    const webAppUrl = `${getAppBaseUrl()}/?v=${Date.now()}`;
+
     try {
-      const user = await DB.getUserByTelegramId(msg.from.id);
-      if (!user) return;
+      let user = await DB.getUserByTelegramId(telegramId);
+      if (!user) {
+        user = await DB.getOrCreateUser(telegramId, username, firstName);
+      }
+
       const prof = await DB.getUserDetailedProfile(user.id);
-      const webAppUrl = `${getAppBaseUrl()}/?v=${Date.now()}`;
       const reply = 
         `💼 <b>የኔ ሂሳብ (Wallet)</b>\n\n` +
         `💵 <b>መጫወቻ ሂሳብ: ETB  ${prof.playOnlyBalance.toFixed(2)}</b>\n` +
@@ -265,24 +261,40 @@ if (process.env.BOT_TOKEN) {
         `🏆 <b>ዋና ሂሳብ: ETB  ${prof.cashableBalance.toFixed(2)}</b>\n` +
         `(ያሸነፉት ወጪ የሚሆን! | በተጨማሪም ለመጫወቻ የሚጠቅም ሂሳብ)\n\n` +
         `💰 <b>ጠቅላላ ሂሳብ: ETB  ${user.balance.toFixed(2)}</b>`;
-      bot.sendMessage(msg.chat.id, reply, { parse_mode: 'HTML', ...getBotMainMenu(webAppUrl) }).catch(() => {});
-    } catch (e) {}
+
+      bot.sendMessage(chatId, reply, {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[{ text: '🎮 ይጫወቱ (Play Now)', web_app: { url: webAppUrl } }]]
+        }
+      }).catch(err => console.error('Balance send error:', err.message));
+    } catch (e) {
+      console.error('Balance error:', e.message);
+    }
   });
 
-  bot.onText(/\/deposit/, (msg) => {
+  // 📥 /deposit ትዕዛዝ
+  bot.onText(/\/?(deposit|ገቢ)(@\w+)?/i, (msg) => {
     const webAppUrl = `${getAppBaseUrl()}/?v=${Date.now()}`;
     const reply = 
       `📥 <b>ገቢ ለማድረግ (Deposit)</b>\n\n` +
       `🟢 <b>ቴሌብር (Telebirr):</b> <code>${SYSTEM_CONFIG.telebirrPhone}</code> (${SYSTEM_CONFIG.telebirrName})\n\n` +
       `📌 <b>ዝቅተኛው የማስገቢያ መጠን:</b> ${SYSTEM_CONFIG.minDeposit} ETB\n\n` +
       `<b>አሞላሉ፦</b>\n` +
-      `1. በቴሌብር ብር ይላኩ\n` +
+      `1. በቴሌብር ወደ ላይኛው ቁጥር ብር ይላኩ\n` +
       `2. የደረሶትን የትራንዛክሽን መለያ ቁጥር (Txn ID) ይቅዱ\n` +
       `3. ከታች <b>'🎮 ይጫወቱ'</b> ተጭነው Wallet ውስጥ የትራንዛክሽን ቁጥሩን ያስገቡ!`;
-    bot.sendMessage(msg.chat.id, reply, { parse_mode: 'HTML', ...getBotMainMenu(webAppUrl) }).catch(() => {});
+
+    bot.sendMessage(msg.chat.id, reply, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[{ text: '🎮 Wallet ለመክፈት ይጫወቱ', web_app: { url: webAppUrl } }]]
+      }
+    }).catch(err => console.error('Deposit send error:', err.message));
   });
 
-  bot.onText(/\/withdraw/, (msg) => {
+  // 📤 /withdraw ትዕዛዝ
+  bot.onText(/\/?(withdraw|ወጪ)(@\w+)?/i, (msg) => {
     const webAppUrl = `${getAppBaseUrl()}/?v=${Date.now()}`;
     const reply = 
       `📤 <b>ወጪ ለማድረግ (Withdraw)</b>\n\n` +
@@ -290,16 +302,24 @@ if (process.env.BOT_TOKEN) {
       `📌 <b>ቀሪ ተቀማጭ:</b> ቢያንስ ${SYSTEM_CONFIG.withdrawalReserve} ETB መኖር አለበት\n` +
       `📌 ብር ለማውጣት መጀመሪያ ቢያንስ አንድ ጊዜ ${SYSTEM_CONFIG.minDeposit} ETB ማስገባት ግዴታ ነው!\n\n` +
       `ያሸነፉትን ገንዘብ ለማውጣት ከታች <b>'🎮 ይጫወቱ'</b> ተጭነው Wallet ውስጥ የቴሌብር ስልክዎን ያስገቡ!`;
-    bot.sendMessage(msg.chat.id, reply, { parse_mode: 'HTML', ...getBotMainMenu(webAppUrl) }).catch(() => {});
+
+    bot.sendMessage(msg.chat.id, reply, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[{ text: '🎮 Wallet ለመክፈት ይጫወቱ', web_app: { url: webAppUrl } }]]
+      }
+    }).catch(err => console.error('Withdraw send error:', err.message));
   });
 
-  bot.onText(/\/invite/, (msg) => {
+  // 🔗 /invite ትዕዛዝ
+  bot.onText(/\/?(invite|ጋብዝ)(@\w+)?/i, (msg) => {
     const refLink = `https://t.me/${detectedBotUsername}?start=ref_${msg.from.id}`;
     const reply = 
       `🔗 <b>ጓደኛዎን ይጋብዙ እና ያሸንፉ!</b>\n\n` +
       `የእርስዎ መጋበዣ ሊንክ፦\n<code>${refLink}</code>\n\n` +
       `🏆 <b>ሳምንታዊ የግብዣ ውድድር፦</b>\n` +
       `በየሳምንቱ ብዙ ሰው በመጋበዝ ከ 1ኛ - 3ኛ ይውጡ፤ እስከ 500+ ETB የገንዘብ ሽልማት ያሸንፉ!`;
+
     bot.sendMessage(msg.chat.id, reply, {
       parse_mode: 'HTML',
       reply_markup: {
@@ -307,10 +327,11 @@ if (process.env.BOT_TOKEN) {
           [{ text: '📲 ሊንኩን ለጓደኞችህ አጋራ (Share Link)', url: `https://t.me/share/url?url=${encodeURIComponent(refLink)}&text=${encodeURIComponent(`🎮 ና የ${SYSTEM_CONFIG.appName} አብረን እንጫወት!`)}` }]
         ]
       }
-    }).catch(() => {});
+    }).catch(err => console.error('Invite send error:', err.message));
   });
 
-  bot.onText(/\/help/, (msg) => {
+  // ℹ️ /help ትዕዛዝ
+  bot.onText(/\/?(help|እርዳታ|ደንቦች)(@\w+)?/i, (msg) => {
     const webAppUrl = `${getAppBaseUrl()}/?v=${Date.now()}`;
     const reply = 
       `📖 <b>የ${SYSTEM_CONFIG.appName} አጨዋወት መመሪያ:</b>\n\n` +
@@ -318,21 +339,25 @@ if (process.env.BOT_TOKEN) {
       `2. ካርቴላ ይቁረጡ (ከ 1 እስከ 400 ባሉት ካርቴላዎች)\n` +
       `3. ኳሶችን ይከታተሉ (Auto-daub ማብራት ይመረጣል)\n` +
       `4. መስመር ሲሞላ ሲስተሙ በራሱ አውቶማቲክ አሸናፊ ያደርግዎታል!`;
-    bot.sendMessage(msg.chat.id, reply, { parse_mode: 'HTML', ...getBotMainMenu(webAppUrl) }).catch(() => {});
+
+    bot.sendMessage(msg.chat.id, reply, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[{ text: '🎮 አሁኑኑ ተጫወት (Play Now)', web_app: { url: webAppUrl } }]]
+      }
+    }).catch(err => console.error('Help send error:', err.message));
   });
 
+  // ከስር ያሉ ጽሁፎችን ሲነኩ ምላሽ መስጫ
   bot.on('message', async (msg) => {
     if (!msg.text || msg.text.startsWith('/')) return;
     const chatId = msg.chat.id;
-    const telegramId = msg.from.id.toString();
     const text = msg.text.trim();
     const webAppUrl = `${getAppBaseUrl()}/?v=${Date.now()}`;
 
-    try {
-      const user = await DB.getUserByTelegramId(telegramId);
-      if (!user) return;
-
-      if (text === '💰 ሂሳብ' || text.includes('ሂሳብ')) {
+    if (text === '💰 ሂሳብ' || text.includes('ሂሳብ')) {
+      const user = await DB.getUserByTelegramId(msg.from.id);
+      if (user) {
         const prof = await DB.getUserDetailedProfile(user.id);
         const reply = 
           `💼 <b>የኔ ሂሳብ (Wallet)</b>\n\n` +
@@ -343,69 +368,68 @@ if (process.env.BOT_TOKEN) {
           `💰 <b>ጠቅላላ ሂሳብ: ETB  ${user.balance.toFixed(2)}</b>`;
         return bot.sendMessage(chatId, reply, { parse_mode: 'HTML', ...getBotMainMenu(webAppUrl) });
       }
+    }
 
-      if (text === '📥 ገቢ ለማድረግ') {
-        const reply = 
-          `📥 <b>ገቢ ለማድረግ (Deposit)</b>\n\n` +
-          `🟢 <b>ቴሌብር (Telebirr):</b> <code>${SYSTEM_CONFIG.telebirrPhone}</code> (${SYSTEM_CONFIG.telebirrName})\n\n` +
-          `📌 <b>ዝቅተኛው የማስገቢያ መጠን:</b> ${SYSTEM_CONFIG.minDeposit} ETB\n\n` +
-          `<b>አሞላሉ፦</b>\n` +
-          `1. በቴሌብር ብር ይላኩ\n` +
-          `2. የደረሶትን የትራንዛክሽን መለያ ቁጥር (Txn ID) ይቅዱ\n` +
-          `3. ከታች <b>'🎮 ይጫወቱ'</b> ተጭነው Wallet ውስጥ የትራንዛክሽን ቁጥሩን ያስገቡ!`;
-        return bot.sendMessage(chatId, reply, { parse_mode: 'HTML', ...getBotMainMenu(webAppUrl) });
-      }
+    if (text === '📥 ገቢ ለማድረግ') {
+      const reply = 
+        `📥 <b>ገቢ ለማድረግ (Deposit)</b>\n\n` +
+        `🟢 <b>ቴሌብር (Telebirr):</b> <code>${SYSTEM_CONFIG.telebirrPhone}</code> (${SYSTEM_CONFIG.telebirrName})\n\n` +
+        `📌 <b>ዝቅተኛው የማስገቢያ መጠን:</b> ${SYSTEM_CONFIG.minDeposit} ETB\n\n` +
+        `<b>አሞላሉ፦</b>\n` +
+        `1. በቴሌብር ብር ይላኩ\n` +
+        `2. የደረሶትን የትራንዛክሽን መለያ ቁጥር (Txn ID) ይቅዱ\n` +
+        `3. ከታች <b>'🎮 ይጫወቱ'</b> ተጭነው Wallet ውስጥ የትራንዛክሽን ቁጥሩን ያስገቡ!`;
+      return bot.sendMessage(chatId, reply, { parse_mode: 'HTML', ...getBotMainMenu(webAppUrl) });
+    }
 
-      if (text === '📤 ወጪ ለማድረግ') {
-        const reply = 
-          `📤 <b>ወጪ ለማድረግ (Withdraw)</b>\n\n` +
-          `📌 <b>ዝቅተኛው የማውጫ መጠን:</b> ${SYSTEM_CONFIG.minWithdraw} ETB\n` +
-          `📌 <b>ቀሪ ተቀማጭ:</b> ቢያንስ ${SYSTEM_CONFIG.withdrawalReserve} ETB መኖር አለበት\n` +
-          `📌 ብር ለማውጣት መጀመሪያ ቢያንስ አንድ ጊዜ ${SYSTEM_CONFIG.minDeposit} ETB ማስገባት ግዴታ ነው!\n\n` +
-          `ያሸነፉትን ገንዘብ ለማውጣት ከታች <b>'🎮 ይጫወቱ'</b> ተጭነው Wallet ውስጥ የቴሌብር ስልክዎን ያስገቡ!`;
-        return bot.sendMessage(chatId, reply, { parse_mode: 'HTML', ...getBotMainMenu(webAppUrl) });
-      }
+    if (text === '📤 ወጪ ለማድረግ') {
+      const reply = 
+        `📤 <b>ወጪ ለማድረግ (Withdraw)</b>\n\n` +
+        `📌 <b>ዝቅተኛው የማውጫ መጠን:</b> ${SYSTEM_CONFIG.minWithdraw} ETB\n` +
+        `📌 <b>ቀሪ ተቀማጭ:</b> ቢያንስ ${SYSTEM_CONFIG.withdrawalReserve} ETB መኖር አለበት\n` +
+        `📌 ብር ለማውጣት መጀመሪያ ቢያንስ አንድ ጊዜ ${SYSTEM_CONFIG.minDeposit} ETB ማስገባት ግዴታ ነው!\n\n` +
+        `ያሸነፉትን ገንዘብ ለማውጣት ከታች <b>'🎮 ይጫወቱ'</b> ተጭነው Wallet ውስጥ የቴሌብር ስልክዎን ያስገቡ!`;
+      return bot.sendMessage(chatId, reply, { parse_mode: 'HTML', ...getBotMainMenu(webAppUrl) });
+    }
 
-      if (text === '🔗 ጋብዝ & አግኝ') {
-        const refLink = `https://t.me/${detectedBotUsername}?start=ref_${telegramId}`;
-        const reply = 
-          `🔗 <b>ጓደኛዎን ይጋብዙ እና ያሸንፉ!</b>\n\n` +
-          `የእርስዎ መጋበዣ ሊንክ፦\n<code>${refLink}</code>\n\n` +
-          `🏆 <b>ሳምንታዊ የግብዣ ውድድር፦</b>\n` +
-          `በየሳምንቱ ብዙ ሰው በመጋበዝ ከ 1ኛ - 3ኛ ይውጡ፤ እስከ 500+ ETB የገንዘብ ሽልማት ያሸንፉ!`;
-        return bot.sendMessage(chatId, reply, {
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '📲 ሊንኩን ለጓደኞችህ አጋራ (Share Link)', url: `https://t.me/share/url?url=${encodeURIComponent(refLink)}&text=${encodeURIComponent(`🎮 ና የ${SYSTEM_CONFIG.appName} አብረን እንጫወት!`)}` }]
-            ]
-          }
-        });
-      }
+    if (text === '🔗 ጋብዝ & አግኝ') {
+      const refLink = `https://t.me/${detectedBotUsername}?start=ref_${msg.from.id}`;
+      const reply = 
+        `🔗 <b>ጓደኛዎን ይጋብዙ እና ያሸንፉ!</b>\n\n` +
+        `የእርስዎ መጋበዣ ሊንክ፦\n<code>${refLink}</code>\n\n` +
+        `🏆 <b>ሳምንታዊ የግብዣ ውድድር፦</b>\n` +
+        `በየሳምንቱ ብዙ ሰው በመጋበዝ ከ 1ኛ - 3ኛ ይውጡ፤ እስከ 500+ ETB የገንዘብ ሽልማት ያሸንፉ!`;
+      return bot.sendMessage(chatId, reply, {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '📲 ሊንኩን ለጓደኞችህ አጋራ (Share Link)', url: `https://t.me/share/url?url=${encodeURIComponent(refLink)}&text=${encodeURIComponent(`🎮 ና የ${SYSTEM_CONFIG.appName} አብረን እንጫወት!`)}` }]
+          ]
+        }
+      });
+    }
 
-      if (text === '🏆 ሳምንታዊ ውድድር') {
-        const contest = await DB.getWeeklyReferralLeaderboard();
-        const reply = 
-          `🏆 <b>ሳምንታዊ የግብዣ ውድድር</b>\n\n` +
-          `🎁 <b>የዚህ ሳምንት ሽልማቶች፦</b>\n` +
-          `🥇 1ኛ ደረጃ: <b>${contest.prizes.prize1} ETB</b>\n` +
-          `🥈 2ኛ ደረጃ: <b>${contest.prizes.prize2} ETB</b>\n` +
-          `🥉 3ኛ ደረጃ: <b>${contest.prizes.prize3} ETB</b>\n\n` +
-          `ብዙ ሰው በመጋበዝ 1ኛ፣ 2ኛ ወይም 3ኛ ይውጡ፤ ሳምንቱ ሲጠናቀቅ ብሩ በቀጥታ ወደ ዋሌትዎ ገቢ ይደረጋል!`;
-        return bot.sendMessage(chatId, reply, { parse_mode: 'HTML', ...getBotMainMenu(webAppUrl) });
-      }
+    if (text === '🏆 ሳምንታዊ ውድድር') {
+      const contest = await DB.getWeeklyReferralLeaderboard();
+      const reply = 
+        `🏆 <b>ሳምንታዊ የግብዣ ውድድር</b>\n\n` +
+        `🎁 <b>የዚህ ሳምንት ሽልማቶች፦</b>\n` +
+        `🥇 1ኛ ደረጃ: <b>${contest.prizes.prize1} ETB</b>\n` +
+        `🥈 2ኛ ደረጃ: <b>${contest.prizes.prize2} ETB</b>\n` +
+        `🥉 3ኛ ደረጃ: <b>${contest.prizes.prize3} ETB</b>\n\n` +
+        `ብዙ ሰው በመጋበዝ 1ኛ፣ 2ኛ ወይም 3ኛ ይውጡ፤ ሳምንቱ ሲጠናቀቅ ብሩ በቀጥታ ወደ ዋሌትዎ ገቢ ይደረጋል!`;
+      return bot.sendMessage(chatId, reply, { parse_mode: 'HTML', ...getBotMainMenu(webAppUrl) });
+    }
 
-      if (text === '🆘 እርዳታ' || text === '📜 ደንቦች') {
-        const reply = 
-          `📖 <b>የ${SYSTEM_CONFIG.appName} አጨዋወት መመሪያ:</b>\n\n` +
-          `1. በቴሌብር ሒሳብዎን ይሙሉ (Min: ${SYSTEM_CONFIG.minDeposit} ETB)\n` +
-          `2. ካርቴላ ይቁረጡ (ከ 1 እስከ 400 ባሉት ካርቴላዎች)\n` +
-          `3. ኳሶችን ይከታተሉ (Auto-daub ማብራት ይመረጣል)\n` +
-          `4. መስመር ሲሞላ ሲስተሙ በራሱ አውቶማቲክ አሸናፊ ያደርግዎታል!`;
-        return bot.sendMessage(chatId, reply, { parse_mode: 'HTML', ...getBotMainMenu(webAppUrl) });
-      }
-
-    } catch (e) {}
+    if (text === '🆘 እርዳታ' || text === '📜 ደንቦች') {
+      const reply = 
+        `📖 <b>የ${SYSTEM_CONFIG.appName} አጨዋወት መመሪያ:</b>\n\n` +
+        `1. በቴሌብር ሒሳብዎን ይሙሉ (Min: ${SYSTEM_CONFIG.minDeposit} ETB)\n` +
+        `2. ካርቴላ ይቁረጡ (ከ 1 እስከ 400 ባሉት ካርቴላዎች)\n` +
+        `3. ኳሶችን ይከታተሉ (Auto-daub ማብራት ይመረጣል)\n` +
+        `4. መስመር ሲሞላ ሲስተሙ በራሱ አውቶማቲክ አሸናፊ ያደርግዎታል!`;
+      return bot.sendMessage(chatId, reply, { parse_mode: 'HTML', ...getBotMainMenu(webAppUrl) });
+    }
   });
 
   bot.on('callback_query', async (query) => {
