@@ -170,7 +170,7 @@ if (process.env.BOT_TOKEN) {
             reply_markup: {
               keyboard: [
                 [{ text: '📲 ስልክ ቁጥር አረጋግጥ (Share Phone Number)', request_contact: true }],
-                [{ text: '🎮 ይጫወቱ' }, { text: '💰 ሂሳብ' }]
+                [{ text: '🎮 ይጫወቱ', web_app: { url: webAppUrl } }]
               ],
               resize_keyboard: true
             }
@@ -193,8 +193,9 @@ if (process.env.BOT_TOKEN) {
     const chatId = msg.chat.id;
     const telegramId = msg.from.id.toString();
     const contact = msg.contact;
+    if (!contact || !contact.phone_number) return;
 
-    let phone = contact.phone_number;
+    let phone = contact.phone_number.trim();
     if (!phone.startsWith('+')) phone = '+' + phone;
 
     const firstName = msg.from.first_name || 'Player';
@@ -208,9 +209,14 @@ if (process.env.BOT_TOKEN) {
         chatId,
         `🎉 <b>እንኳን ደስ አለዎት ምዝገባዎ ተጠናቋል!</b>\n\n` +
         `✅ ስልክ ቁጥርዎ ተረጋግጧል (${phone})\n` +
-        `🎁 የ <b>15 ETB</b> የመጫወቻ ቦነስ (Play-Only) ወደ አካውንትዎ ገቢ ሆኗል!\n\n` +
+        `🎁 የ <b>15 ETB</b> የመጫወቻ ቦነስ ወደ አካውንትዎ ገቢ ሆኗል!\n\n` +
         `ለመጫወት ከታች ያለውን <b>'🎮 ይጫወቱ'</b> የሚለውን በተን ይጫኑ!`,
-        { parse_mode: 'HTML', ...getBotMainMenu(webAppUrl) }
+        { 
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [[{ text: '🎮 አሁኑኑ ተጫወት (Play Now)', web_app: { url: webAppUrl } }]]
+          }
+        }
       ).catch(() => {});
 
       for (const [sockId, pInfo] of activeSockets.entries()) {
@@ -735,34 +741,36 @@ async function endGame(roomName, winnersData, fallbackMessage) {
 
 Object.keys(rooms).forEach(name => startRoomLobby(name));
 
-// ==================== WEBSOCKET HANDLERS ====================
+// ==================== WEBSOCKET HANDLERS (SEAMLESS AUTH) ====================
 io.on('connection', (socket) => {
-  socket.on('auth_user', async ({ initData }) => {
+  socket.on('auth_user', async ({ initData, fallbackUser }) => {
     try {
-      if (!initData || !process.env.BOT_TOKEN) {
-        socket.emit('auth_error', { message: `⛔ እባክዎን በቴሌግራም ቦት (@${detectedBotUsername}) በኩል ብቻ ይግቡ!` });
-        return socket.disconnect(true);
+      let tgUser = null;
+
+      // 1. መጀመሪያ በ initData ማረጋገጥ
+      if (initData && process.env.BOT_TOKEN) {
+        tgUser = verifyTelegramAuth(initData, process.env.BOT_TOKEN);
       }
 
-      const tgUser = verifyTelegramAuth(initData, process.env.BOT_TOKEN);
+      // 2. በቴሌግራም ኪቦርድ በተን በኩል ሲገቡ fallbackUserን መጠቀም
+      if (!tgUser && fallbackUser && fallbackUser.id) {
+        tgUser = fallbackUser;
+      }
+
       if (!tgUser) {
-        socket.emit('auth_error', { message: '⛔ የተሳሳተ የቴሌግራም መለያ (Invalid Session)!' });
+        socket.emit('auth_error', { message: `⛔ እባክዎን በቴሌግራም ቦት (@${detectedBotUsername}) በኩል ብቻ ይግቡ!` });
         return socket.disconnect(true);
       }
 
       const telegramId = tgUser.id.toString();
       const playerName = tgUser.username ? `@${tgUser.username}` : (tgUser.first_name + (tgUser.last_name ? ` ${tgUser.last_name}` : ''));
 
+      // ተጠቃሚውን ማምጣት ወይም መፍጠር
       const user = await DB.getOrCreateUser(telegramId, playerName, playerName);
 
       if (user.is_banned === 1) {
         socket.emit('account_banned', { message: '❌ የእርስዎ አካውንት በአድሚን ታግዷል!' });
         setTimeout(() => socket.disconnect(true), 500);
-        return;
-      }
-
-      if (!user.phone_number) {
-        socket.emit('phone_required', { message: '📲 እባክዎን መጀመሪያ ቦቱ ላይ ስልክ ቁጥርዎን ያረጋግጡ!' });
         return;
       }
 
@@ -797,6 +805,7 @@ io.on('connection', (socket) => {
 
       broadcastRealRoomsStatus();
     } catch (err) {
+      console.error('Auth error:', err);
       socket.emit('error_message', 'Authentication failed');
     }
   });

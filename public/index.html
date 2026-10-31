@@ -274,7 +274,7 @@
     </div>
   </div>
 
-  <!-- VIEW 1: AUTH -->
+  <!-- VIEW 1: AUTH (BACKUP VIEW) -->
   <div id="screen-auth" class="view-screen active">
     <div style="text-align: center; margin: auto; max-width: 320px;">
       <div class="app-logo-text" id="auth-app-title" style="font-size: 28px; margin-bottom: 6px;">BINGO</div>
@@ -285,7 +285,7 @@
     </div>
   </div>
 
-  <!-- VIEW 2: HOME TAB -->
+  <!-- VIEW 2: HOME TAB (DASHBOARD) -->
   <div id="screen-dashboard" class="view-screen">
     <div class="top-brand-header">
       <div class="app-logo-text" id="dash-logo-text">BINGO 🌟</div>
@@ -979,8 +979,16 @@
       }
     }
 
+    function checkTelegramEnvironment() {
+      if (!window.Telegram || !window.Telegram.WebApp) return false;
+      const t = window.Telegram.WebApp;
+      if (t.initData && t.initData.length > 0) return true;
+      if (t.initDataUnsafe && t.initDataUnsafe.user && t.initDataUnsafe.user.id) return true;
+      if (t.platform && t.platform !== 'unknown') return true;
+      return false;
+    }
+
     window.onload = () => {
-      // 🔄 ዳይናሚክ ቅንብሮችን ከሰርቨሩ ማምጣት
       fetch('/api/config')
         .then(r => r.json())
         .then(cfg => {
@@ -1025,9 +1033,9 @@
         })
         .catch(() => {});
 
-      const hasTelegramAuth = Boolean(tg?.initData && tg.initData.length > 5);
+      const isInsideTelegram = checkTelegramEnvironment();
 
-      if (!hasTelegramAuth) {
+      if (!isInsideTelegram) {
         document.getElementById('telegram-required-overlay').style.display = 'flex';
         return;
       }
@@ -1043,15 +1051,14 @@
         document.getElementById('prof-avatar-big').innerText = userState.name.charAt(0);
         document.getElementById('ref-link-display').innerText = `https://t.me/${userState.botUsername}?start=ref_${u.id}`;
       }
+
+      authenticateUser();
     };
 
     function authenticateUser() {
-      SoundFX.pop();
-      if (!tg?.initData) {
-        document.getElementById('telegram-required-overlay').style.display = 'flex';
-        return;
-      }
-      socket.emit('auth_user', { initData: tg.initData });
+      const initData = tg?.initData || '';
+      const fallbackUser = tg?.initDataUnsafe?.user || null;
+      socket.emit('auth_user', { initData, fallbackUser });
     }
 
     socket.on('auth_error', (d) => {
